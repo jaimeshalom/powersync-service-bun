@@ -1,0 +1,165 @@
+# Builds, tests and publishes the PowerSync-on-Bun images.
+#
+# It runs on a schedule to pick up new stable releases of PowerSync and of Bun, and by hand
+# for any pair of versions (a rollback build, a rebuild). Nothing is published unless the
+# whole gate passes (scripts/gate.sh). README.md, "Updating" and "Rolling back".
+name: Build
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      powersync:
+        description: "PowerSync version (e.g. 1.29.1) or latest"
+        default: latest
+      bun:
+        description: "Bun version (e.g. 1.5.0), canary, or auto (newest stable with `bun compile`, else canary)"
+        default: auto
+      force:
+        description: "Build even if this tag is already published (the tag itself is never overwritten)"
+        type: boolean
+        default: false
+      set_latest:
+        description: "Point channels/latest.json at this build when it passes"
+        type: boolean
+        default: true
+  pull_request:
+  push:
+    branches: [main]
+    paths: [Dockerfile, "scripts/**", "test/**", RECIPE_REVISION, ".github/workflows/build.yml"]
+
+permissions:
+  contents: write # commit channels/*.json
+  packages: write # push to ghcr.io
+  id-token: write # build provenance
+  attestations: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # One package per variant, with the same tag on both.
+  IMAGE_AOT: ghcr.io/${{ github.repository }}-aot
+  IMAGE_JIT: ghcr.io/${{ github.repository }}-jit
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Unit tests of the scripts and of the gate's verdict
+        run: test/unit.sh
+
+      - name: Log in to ghcr.io
+        if: github.event_name != 'pull_request'
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Resolve versions
+        id: v
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          WANT_POWERSYNC: ${{ inputs.powersync || 'latest' }}
+          WANT_BUN: ${{ inputs.bun || 'auto' }}
+        run: scripts/resolve-versions.sh "$WANT_POWERSYNC" "$WANT_BUN"
+
+      - name: Fetch Bun and name the build
+        id: tag
+        run: |
+          docker build --target bun --build-arg BUN_URL="${{ steps.v.outputs.BUN_URL }}" -t psb:bun .
+          rev=$(docker run --rm psb:bun cat /bun-revision)
+          tag=$(scripts/image-tag.sh "${{ steps.v.outputs.POWERSYNC_VERSION }}" "$rev" "$(cat RECIPE_REVISION)")
+          { echo "bun=$rev"; echo "tag=$tag"; } | tee -a "$GITHUB_OUTPUT"
+
+      # A published tag is never rebuilt. On the schedule, canary builds are also skipped once
+      # this PowerSync version has a build: canary moves every day, and a daily redeploy is noise.
+      - name: Decide whether to build
+        id: go
+        env:
+          EVENT: ${{ github.event_name }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          build=true; publish=true; why="new build"
+          if docker manifest inspect "$IMAGE_AOT:${{ steps.tag.outputs.tag }}" >/dev/null 2>&1; then
+            publish=false; why="already published"; [ "$EVENT" = schedule ] && build=false
+            [ "$EVENT" = workflow_dispatch ] && [ "$FORCE" != true ] && build=false
+          elif [ "$EVENT" = schedule ] && [ "${{ steps.v.outputs.BUN_CHANNEL }}" = canary ] \
+               && [ "$(jq -r .powersync channels/latest.json 2>/dev/null)" = "${{ steps.v.outputs.POWERSYNC_VERSION }}" ]; then
+            build=false; why="canary build of this PowerSync version already exists"
+          fi
+          [ "$EVENT" = pull_request ] && publish=false
+          { echo "build=$build"; echo "publish=$publish"; } | tee -a "$GITHUB_OUTPUT"
+          echo "### ${{ steps.tag.outputs.tag }}: $why (build=$build, publish=$publish)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build both images
+        if: steps.go.outputs.build == 'true'
+        run: |
+          for t in aot jit; do
+            docker build --target "$t" \
+              --build-arg POWERSYNC_VERSION="${{ steps.v.outputs.POWERSYNC_VERSION }}" \
+              --build-arg BUN_URL="${{ steps.v.outputs.BUN_URL }}" \
+              --build-arg SHA="${{ github.sha }}" \
+              --label org.opencontainers.image.source="${{ github.server_url }}/${{ github.repository }}" \
+              --label org.opencontainers.image.version="${{ steps.tag.outputs.tag }}" \
+              --label org.opencontainers.image.licenses=Apache-2.0 \
+              --label org.opencontainers.image.description="Unofficial PowerSync service ${{ steps.v.outputs.POWERSYNC_VERSION }} on Bun ${{ steps.tag.outputs.bun }} ($t)" \
+              -t "psb:$t" .
+          done
+          docker run --rm --entrypoint cat psb:aot /usr/share/powersync/build-report.txt
+
+      - name: Gate
+        if: steps.go.outputs.build == 'true'
+        env:
+          PSBUN_WORK: ${{ runner.temp }}/psbun
+        run: |
+          previous=$(jq -r '.aot.ref // empty' channels/latest.json 2>/dev/null || true)
+          if [ -n "$previous" ] && docker pull -q "$previous" >/dev/null 2>&1; then export UPGRADE_FROM=$previous; fi
+          rc=0; scripts/gate.sh "${{ steps.v.outputs.POWERSYNC_VERSION }}" psb:aot psb:jit || rc=$?
+          for s in mongodb postgresql; do
+            { echo "#### storage: $s"; cat "$PSBUN_WORK/$s/results/report.md" 2>/dev/null || echo "no report"; } >> "$GITHUB_STEP_SUMMARY"
+          done
+          { echo "#### TLS to Postgres"; sed 's/^/- /' "$PSBUN_WORK/tls.txt" 2>/dev/null; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" != 0 ]; then tail -n 40 "$PSBUN_WORK"/*/run-*.log; tail -n 30 "$PSBUN_WORK"/*/results/*/*.out; fi
+          exit "$rc"
+
+      - name: Publish
+        id: push
+        if: steps.go.outputs.build == 'true' && steps.go.outputs.publish == 'true'
+        run: |
+          tag=${{ steps.tag.outputs.tag }}
+          docker tag psb:aot "$IMAGE_AOT:$tag"; docker tag psb:jit "$IMAGE_JIT:$tag"
+          docker push -q "$IMAGE_AOT:$tag"; docker push -q "$IMAGE_JIT:$tag"
+          digest() { docker image inspect -f '{{index .RepoDigests 0}}' "$1" | sed 's/.*@//'; }
+          { echo "aot=$(digest "$IMAGE_AOT:$tag")"; echo "jit=$(digest "$IMAGE_JIT:$tag")"; } | tee -a "$GITHUB_OUTPUT"
+
+      - name: Attest the AOT image
+        if: steps.push.outputs.aot
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_AOT }}
+          subject-digest: ${{ steps.push.outputs.aot }}
+          push-to-registry: true
+
+      - name: Attest the JIT image
+        if: steps.push.outputs.jit
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_JIT }}
+          subject-digest: ${{ steps.push.outputs.jit }}
+          push-to-registry: true
+
+      - name: Record the build in channels/
+        if: steps.push.outputs.aot && (github.event_name != 'workflow_dispatch' || inputs.set_latest)
+        env:
+          PSBUN_WORK: ${{ runner.temp }}/psbun
+        run: |
+          docker run --rm --entrypoint sh psb:jit -c 'ls modules/module-mongodb-storage/dist/migrations/db/migrations modules/module-postgres-storage/dist/migrations/scripts | grep "\.js$"' > "$PSBUN_WORK/migrations.txt"
+          upstream=$(docker run --rm --entrypoint cat psb:jit UPSTREAM_SHA)
+          node scripts/write-channel.mjs "${{ steps.v.outputs.POWERSYNC_VERSION }}" "${{ steps.tag.outputs.bun }}" "${{ steps.v.outputs.BUN_CHANNEL }}" \
+            "${{ steps.tag.outputs.tag }}" "${{ steps.push.outputs.aot }}" "${{ steps.push.outputs.jit }}" "$upstream" "$IMAGE_AOT" "$IMAGE_JIT" "$PSBUN_WORK"
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add channels && git commit -m "build: publish ${{ steps.tag.outputs.tag }}"
+          git pull --no-rebase --no-edit origin "${{ github.ref_name }}" && git push origin "HEAD:${{ github.ref_name }}"

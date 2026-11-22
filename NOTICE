@@ -1,0 +1,12 @@
+powersync-service-bun
+Unofficial builds of the PowerSync service for the Bun runtime.
+
+This repository holds only a build recipe and a test suite. The images it publishes contain
+the PowerSync service, Copyright Journey Mobile, Inc., licensed under the Apache License 2.0:
+https://github.com/powersync-ja/powersync-service
+
+The images also contain the Bun runtime (MIT, https://github.com/oven-sh/bun) and the
+service's third-party dependencies under their own licenses.
+
+"PowerSync" is a trademark of its owner. This project is not affiliated with, endorsed by or
+supported by the PowerSync or Bun teams.

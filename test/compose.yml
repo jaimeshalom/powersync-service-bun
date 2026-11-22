@@ -1,0 +1,20 @@
+# Backing services of the test suite, on loopback ports only. Shapes follow a real deployment:
+# Postgres with logical replication, and MongoDB as a replica set WITH authentication.
+name: psbun-test
+services:
+  pg:
+    image: postgres:${PG_MAJOR:-18}
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"]
+    environment: { POSTGRES_PASSWORD: password, POSTGRES_DB: app }
+    ports: ["127.0.0.1:25432:5432"]
+  mongo:
+    image: mongo:8.0
+    # A replica set with auth needs a key file, even with one member.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        openssl rand -base64 756 > /tmp/keyfile && chmod 400 /tmp/keyfile && chown mongodb:mongodb /tmp/keyfile
+        exec docker-entrypoint.sh mongod --replSet rs0 --keyFile /tmp/keyfile --bind_ip_all --quiet --wiredTigerCacheSizeGB 0.5
+    environment: { MONGO_INITDB_ROOT_USERNAME: root, MONGO_INITDB_ROOT_PASSWORD: password }
+    ports: ["127.0.0.1:27299:27017"]

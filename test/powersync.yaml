@@ -1,0 +1,32 @@
+# The config every variant runs with. It uses the forms a real deployment uses: !env values,
+# Postgres by host/user/password, MongoDB with credentials, client keys fetched from a JWKS
+# URL, an API token and the Prometheus port.
+replication:
+  connections:
+    - type: postgresql
+      hostname: 127.0.0.1
+      port: 25432
+      database: app
+      username: !env PS_PG_USER
+      password: !env PS_PG_PASSWORD
+      sslmode: disable
+storage:
+  type: mongodb
+  uri: !env PS_STORAGE_URI
+  database: ps_test
+  username: !env PS_STORAGE_USER
+  password: !env PS_STORAGE_PASSWORD
+port: !env PS_PORT
+sync_config:
+  path: /cfg/sync_streams.yaml
+client_auth:
+  jwks_uri: !env PS_JWKS_URL
+  audience: ["powersync-dev", "powersync"]
+api:
+  tokens:
+    - !env PS_API_TOKEN
+  parameters:
+    max_concurrent_connections: 1000
+telemetry:
+  disable_telemetry_sharing: true
+  prometheus_port: !env PS_METRICS_PORT

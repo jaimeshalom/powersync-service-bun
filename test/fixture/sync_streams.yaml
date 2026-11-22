@@ -1,0 +1,25 @@
+# Sync Streams used by the test suite: one stream of rows the user owns, one of rows shared
+# through an organisation (a CTE plus IN, the shape that exercises parameter lookups), and an
+# on-demand stream with a client parameter.
+config:
+  edition: 3
+streams:
+  mine:
+    auto_subscribe: true
+    priority: 1
+    queries:
+      - SELECT * FROM account WHERE id = auth.user_id()
+      - SELECT * FROM list WHERE user_id = auth.user_id() AND is_shared = false
+      - SELECT * FROM todo WHERE user_id = auth.user_id() AND is_shared = false
+  shared:
+    auto_subscribe: true
+    priority: 2
+    with:
+      my_orgs: SELECT org_id FROM member WHERE user_id = auth.user_id()
+    queries:
+      - SELECT * FROM org WHERE id IN my_orgs
+      - SELECT * FROM list WHERE org_id IN my_orgs
+  list_todos:
+    priority: 3
+    queries:
+      - SELECT * FROM todo WHERE list_id = subscription.parameter('list') AND user_id = auth.user_id()
