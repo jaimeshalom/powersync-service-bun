@@ -8,10 +8,13 @@ const [powersync, bun, bunChannel, tag, aotDigest, jitDigest, upstreamSha, aotIm
 const read = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 const previous = read('channels/latest.json');
 const migrations = fs.readFileSync(`${results}/migrations.txt`, 'utf8').trim().split('\n').filter(Boolean).sort();
+// The AOT binary's own build report (scripts/compile.sh): sizes and what --trim removed.
+const report = (() => { try { return fs.readFileSync(`${results}/build-report.txt`, 'utf8'); } catch { return ''; } })();
+const aotBuild = Object.fromEntries([...report.matchAll(/^(binary_bytes|binary_bytes_untrimmed|trim_saved_bytes|trim_removed|trim_kept)=(\d+)$/gm)].map(([, k, v]) => [k, Number(v)]));
 const gate = Object.fromEntries(['mongodb', 'postgresql'].map((s) => [s, read(`${results}/${s}/results/report.json`)?.rows ?? null]));
 const entry = {
   powersync, bun, bunChannel, tag, builtAt: new Date().toISOString(), upstreamSha,
-  aot: { image: aotImage, ref: `${aotImage}:${tag}`, digest: aotDigest },
+  aot: { image: aotImage, ref: `${aotImage}:${tag}`, digest: aotDigest, build: aotBuild },
   jit: { image: jitImage, ref: `${jitImage}:${tag}`, digest: jitDigest },
   storageMigrations: migrations,
   newStorageMigrations: previous ? migrations.filter((m) => !previous.storageMigrations.includes(m)) : [],

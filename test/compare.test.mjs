@@ -19,7 +19,7 @@ const check = () => ({
 const transports = () => ({ websocket: { ok: true, dataHash: 't' }, bsonHttp: { ok: true, dataHash: 't' }, websocketBadToken: 'refused' });
 const summary = (mode) => {
   const s = { image: 'img', storage: 'mongodb', mode, image_bytes: '300000000', image_user: '901', 'cmd.migrate.exit': '0', 'api.liveness_ok': '0',
-    'api.liveness_after_s': '1.2', 'check.exit': '0', 'transports.exit': '0', stop_s: '0.3' };
+    'api.liveness_after_s': '1.2', 'check.exit': '0', 'transports.exit': '0', stop_s: '0.3', removed_api_hits: '0' };
   for (const c of mode === 'unified' ? ['api'] : ['api', 'sync']) Object.assign(s, { [`${c}.metrics_series`]: '9', [`${c}.log_json_lines`]: '50', [`${c}.log_error_lines`]: '2',
     [`${c}.exit_code`]: '0', [`${c}.restarts`]: '0', [`${c}.idle.rss_kb`]: '90000', [`${c}.final.peak_kb`]: '120000', [`${c}.final.cpu_ms`]: '400' });
   return s;
@@ -76,6 +76,8 @@ red('a bucket checksum that does not match its operations fails', (r) => { if (r
 red('an image that does not run as user 901 fails', (r) => { if (r.name === 'aot') r.summary.image_user = ''; }, /aot: image runs as user ''/);
 red('text logs instead of JSON fail', (r) => { if (r.name === 'aot') r.summary['api.log_json_lines'] = '0'; }, /aot: api wrote no JSON log lines/);
 red('no Prometheus metrics fails', (r) => { if (r.name === 'aot') r.summary['sync.metrics_series'] = '0'; }, /aot: sync exports no powersync_ metrics/);
+red('a call that reached an API --trim removed fails', (r) => { if (r.name === 'aot') r.summary.removed_api_hits = '3'; }, /aot: reached an API that --trim removed \(3 log line/);
+red('a scenario that did not count them fails', (r) => { if (r.name === 'aot-switch') delete r.summary.removed_api_hits; }, /aot-switch: reached an API that --trim removed \(not counted/);
 red('a crash loop fails', (r) => { if (r.name === 'aot') r.summary['api.restarts'] = '5'; }, /aot: api crash-looped/);
 red('a runner killed instead of stopped fails', (r) => { if (r.name === 'aot') r.summary['sync.exit_code'] = '137'; }, /aot: sync did not stop on SIGTERM/);
 red('a missing result file fails', (r) => { if (r.name === 'aot') r.afterCompact = null; }, /aot: after-compact\.json missing/);

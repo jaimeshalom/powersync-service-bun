@@ -58,7 +58,7 @@ CMD ["start"]
 
 FROM runtime AS aot
 COPY --from=compile /out/powersync /usr/local/bin/powersync
-COPY --from=compile /out/build-report.txt /usr/share/powersync/build-report.txt
+COPY --from=compile /out/build-report.txt /out/trim-report.txt /usr/share/powersync/
 COPY --from=app /app/UPSTREAM_SHA /app/LICENSE /usr/share/powersync/
 USER 901
 ENTRYPOINT ["powersync"]

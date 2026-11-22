@@ -31,6 +31,7 @@ for (const n of all) {
     if (s[`${c}.exit_code`] === '137') fail(`${c} did not stop on SIGTERM and was killed`);
     if (Number(s[`${c}.restarts`]) >= 5) fail(`${c} crash-looped (${s[`${c}.restarts`]} restarts)`);
   }
+  if (s.removed_api_hits !== '0') fail(`reached an API that --trim removed (${s.removed_api_hits ?? 'not counted'} log line(s) with ERR_FEATURE_REMOVED)`);
   if (s.image_user !== '901') fail(`image runs as user '${s.image_user}', not 901 like the upstream image`);
   for (const f of ['check.json', 'after-compact.json', 'after-ps-restart.json']) {
     // A variant started on storage another image already used carries that image's history.

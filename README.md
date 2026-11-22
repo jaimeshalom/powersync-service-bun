@@ -9,7 +9,7 @@ it serves exactly the same data as the official Node image of that version (see 
 
 | Image | What it is |
 |---|---|
-| `ghcr.io/jaimeshalom/powersync-service-bun-aot:<tag>` | **AOT**: one binary made by `bun compile`. Smallest and fastest to start. |
+| `ghcr.io/jaimeshalom/powersync-service-bun-aot:<tag>` | **AOT**: one binary made by `bun compile --trim`. Smallest and fastest to start. |
 | `ghcr.io/jaimeshalom/powersync-service-bun-jit:<tag>` | **JIT**: the same code run by the Bun runtime. The fallback if a compiler bug appears. |
 
 Both are drop-in replacements for `journeyapps/powersync-service`: the same commands
@@ -59,7 +59,9 @@ Each scenario runs as the image's own user, with a config in the shape of a real
 - Postgres restarts, the storage database restarts, PowerSync restarts on SIGTERM;
 - the Prometheus endpoint exports metrics, and logs are JSON (`NODE_ENV=production`);
 - TLS to Postgres with `sslmode: verify-full`: the right CA connects, a wrong CA is refused
-  (`test/tls-check.sh`).
+  (`test/tls-check.sh`);
+- no step may reach an API that `--trim` left out of the AOT binary (`ERR_FEATURE_REMOVED` in
+  any log), and the binary must really be a trimmed one (`scripts/trim-check.sh`).
 
 Not covered: MySQL, SQL Server and Convex as replication sources, MongoDB over TLS, and the
 upstream unit tests under Bun. The gate proves the cases above, not every configuration.
@@ -133,6 +135,15 @@ cannot be undone.
   imported dynamically at run time; the script lists them and says why each one is there.
   Its report of compiler warning classes is kept in the image at
   `/usr/share/powersync/build-report.txt`.
+- **`--trim`.** The AOT binary leaves out the Bun and Node.js APIs the service never calls
+  (the Bun command line, the JIT and AOT compilers, `node:vm` and others), so it is smaller
+  and carries less code that could be reached. `/usr/share/powersync/trim-report.txt` in the
+  image lists what was removed and why each kept API is kept, and `aot.build` in
+  `channels/*.json` has the sizes with and without trimming. The service still creates code
+  from strings (its JSON-schema and routing libraries call `new Function`), so the compiler
+  keeps the interpreter and cannot prove as much unused as it could otherwise. A code path
+  the gate does not exercise could still reach a removed API and fail with
+  `ERR_FEATURE_REMOVED`: the JIT image of the same tag is untrimmed, and is the way back.
 - **What does not work under AOT:** hooks that patch modules at load time
   (require-in-the-middle), so Sentry/OpenTelemetry auto-instrumentation is inert.
   PowerSync's own Prometheus metrics work and are part of the gate.

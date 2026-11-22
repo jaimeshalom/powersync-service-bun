@@ -6,21 +6,39 @@
 #  - replication reads the .plpgsql files, and the Postgres TLS client its CA bundle, from disk
 #    at run time: both go in as assets;
 #  - --production: `bun compile` inlines process.env.NODE_ENV at build time. Without it the
-#    binary logs text and puts stack traces in HTTP error bodies whatever the container sets.
+#    binary logs text and puts stack traces in HTTP error bodies whatever the container sets;
+#  - --trim: leaves out the Bun and Node.js APIs the service never calls, so the binary carries
+#    less code that could be reached. A call that does reach a removed API throws
+#    ERR_FEATURE_REMOVED; the gate fails on any (test/run-variant.sh, `removed_api_hits`).
+#    trim-report.txt lists what was removed and why each kept API is kept (--explain=trim).
 set -eu
 APP=$1; OUT=$2; mkdir -p "$OUT"; cd "$APP"
 bun compile --help >/dev/null 2>&1 || { echo "this Bun has no 'bun compile'" >&2; exit 3; }
 MIG=$(ls modules/module-mongodb-storage/dist/migrations/db/migrations/*.js modules/module-postgres-storage/dist/migrations/scripts/*.js)
-# shellcheck disable=SC2086 # MIG is a list of entry points
-bun compile --production service/lib/entry.js $MIG \
-  --asset modules/module-postgres/sql \
-  --asset packages/jpgwire/ca \
-  --asset modules/module-mongodb-storage/dist/migrations/db/migrations \
-  --asset modules/module-postgres-storage/dist/migrations/scripts \
-  --outfile "$OUT/powersync" > "$OUT/build.log" 2>&1 || { tail -60 "$OUT/build.log"; exit 1; }
+compile() { # <outfile> [extra flags...]
+  out=$1; shift
+  # shellcheck disable=SC2086 # MIG is a list of entry points
+  bun compile --production "$@" service/lib/entry.js $MIG \
+    --asset modules/module-postgres/sql \
+    --asset packages/jpgwire/ca \
+    --asset modules/module-mongodb-storage/dist/migrations/db/migrations \
+    --asset modules/module-postgres-storage/dist/migrations/scripts \
+    --outfile "$out"
+}
+compile "$OUT/powersync" --trim --explain=trim > "$OUT/build.log" 2>&1 || { tail -60 "$OUT/build.log"; exit 1; }
+sed -n 's/^.*aot: trim: //p' "$OUT/build.log" > "$OUT/trim-report.txt"
+# The same program without --trim, built only to measure what trimming saves. It is not shipped.
+compile /tmp/powersync-untrimmed > /tmp/untrimmed.log 2>&1 || { tail -60 /tmp/untrimmed.log; exit 1; }
+trimmed=$(stat -c %s "$OUT/powersync"); untrimmed=$(stat -c %s /tmp/powersync-untrimmed)
+rm -f /tmp/powersync-untrimmed /tmp/untrimmed.log
 {
   echo "bun=$(bun --revision)"
-  echo "binary_bytes=$(stat -c %s "$OUT/powersync")"
+  echo "binary_bytes=$trimmed"
+  echo "binary_bytes_untrimmed=$untrimmed"
+  echo "trim_saved_bytes=$((untrimmed - trimmed))"
+  echo "trim_removed=$(grep -c '^removed ' "$OUT/trim-report.txt" || true)"
+  echo "trim_kept=$(grep -c '^kept ' "$OUT/trim-report.txt" || true)"
+  echo "trim_blocked_by=$(sed -n 's/^blocked by \([a-z-]*\):.*/\1/p' "$OUT/trim-report.txt" | sort -u | tr '\n' ' ' | sed 's/ $//')"
   echo "migrations=$(echo "$MIG" | wc -w)"
   echo "warning_classes:"
   grep -oE 'TS1[0-9]{5}' "$OUT/build.log" | sort | uniq -c || true

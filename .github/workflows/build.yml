@@ -108,7 +108,7 @@ jobs:
               --label org.opencontainers.image.description="Unofficial PowerSync service ${{ steps.v.outputs.POWERSYNC_VERSION }} on Bun ${{ steps.tag.outputs.bun }} ($t)" \
               -t "psb:$t" .
           done
-          docker run --rm --entrypoint cat psb:aot /usr/share/powersync/build-report.txt
+          docker run --rm --entrypoint cat psb:aot /usr/share/powersync/build-report.txt /usr/share/powersync/trim-report.txt
 
       - name: Gate
         if: steps.go.outputs.build == 'true'
@@ -122,6 +122,7 @@ jobs:
             { echo "#### storage: $s"; cat "$PSBUN_WORK/$s/results/report.md" 2>/dev/null || echo "no report"; } >> "$GITHUB_STEP_SUMMARY"
           done
           { echo "#### TLS to Postgres"; sed 's/^/- /' "$PSBUN_WORK/tls.txt" 2>/dev/null; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "#### Trim"; sed 's/^/- /' "$PSBUN_WORK/trim.txt" 2>/dev/null; } >> "$GITHUB_STEP_SUMMARY"
           if [ "$rc" != 0 ]; then tail -n 40 "$PSBUN_WORK"/*/run-*.log; tail -n 30 "$PSBUN_WORK"/*/results/*/*.out; fi
           exit "$rc"
 

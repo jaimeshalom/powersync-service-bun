@@ -7,8 +7,10 @@
 #   aot-switch    the AOT image started on storage the Node image created (adopting this build)
 #   node-rollback the Node image started on storage the AOT image has used (the way back)
 #   aot-upgrade   only with UPGRADE_FROM=<image>: this build started on that older build's storage
-# Then TLS to Postgres with certificate verification, for the three images.
-# Reports land in $PSBUN_WORK/<storage>/results/report.{md,json} and $PSBUN_WORK/tls.txt.
+# Then TLS to Postgres with certificate verification, for the three images, and the proof that
+# the AOT binary was trimmed (scripts/trim-check.sh).
+# Reports land in $PSBUN_WORK/<storage>/results/report.{md,json}, $PSBUN_WORK/tls.txt and
+# $PSBUN_WORK/trim.txt.
 # Exit 0 only if everything passes.
 set -uo pipefail
 PS=$1; AOT=$2; JIT=$3
@@ -38,4 +40,8 @@ for pair in "node $NODE" "jit $JIT" "aot $AOT"; do
   if out=$("$T/tls-check.sh" "$2"); then verdict=passed; else verdict=FAILED; rc=1; fi
   echo "$1: $verdict ($(echo "$out" | tr '\n' ' '))" | tee -a "$ROOT/tls.txt"
 done
+# The AOT binary must be a trimmed one: its own build report says what --trim removed.
+echo "── trim"
+docker run --rm --entrypoint cat "$AOT" /usr/share/powersync/build-report.txt > "$ROOT/build-report.txt" 2>/dev/null
+if "$(dirname "$0")/trim-check.sh" "$ROOT/build-report.txt" > "$ROOT/trim.txt" 2>&1; then cat "$ROOT/trim.txt"; else cat "$ROOT/trim.txt" >&2; rc=1; fi
 exit $rc

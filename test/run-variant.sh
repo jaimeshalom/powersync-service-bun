@@ -97,6 +97,9 @@ for c in $RUNNERS; do
   say "$c.log_json_lines=$(grep -c '^{' "$OUT/$c.log")"; say "$c.log_other_lines=$(grep -vc '^{' "$OUT/$c.log")"
   say "$c.log_error_lines=$(grep -c '"level":"error"' "$OUT/$c.log")"
 done
+# A trimmed binary throws ERR_FEATURE_REMOVED where the service reaches an API the compiler left
+# out. Every log of the scenario counts: the runners and the one-shot commands.
+say "removed_api_hits=$(cat "$OUT"/*.log | grep -cE 'ERR_FEATURE_REMOVED|was not compiled into this executable')"
 # Stop before removing: a killed replication runner keeps its lock until it expires (about a
 # minute), and the next scenario on this storage would spend that minute waiting for it.
 for c in $RUNNERS; do docker stop -t 30 "psbun-$N-$c" >/dev/null; docker rm -f "psbun-$N-$c" >/dev/null; done
