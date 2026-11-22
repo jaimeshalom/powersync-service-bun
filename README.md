@@ -144,6 +144,13 @@ cannot be undone.
   keeps the interpreter and cannot prove as much unused as it could otherwise. A code path
   the gate does not exercise could still reach a removed API and fail with
   `ERR_FEATURE_REMOVED`: the JIT image of the same tag is untrimmed, and is the way back.
+- **Size flags measured and not used.** `--no-compile-function-source` (19.6 MB smaller)
+  and `--trim-locales=en` (5.6 MB smaller) were measured in PR #1; the gate passed with both.
+  They are left out because about 10 % of the image is not worth the failure modes:
+  `Function.prototype.toString()` returns no source, which libraries that generate code
+  can read, and `--trim-locales=en` ends the process when a locale other than `en` is
+  requested, which a client or the environment decides, not this repo. The gate covers
+  a test schema, not every path the service can take.
 - **What does not work under AOT:** hooks that patch modules at load time
   (require-in-the-middle), so Sentry/OpenTelemetry auto-instrumentation is inert.
   PowerSync's own Prometheus metrics work and are part of the gate.
