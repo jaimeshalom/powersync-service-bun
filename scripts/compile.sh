@@ -25,24 +25,14 @@ compile() { # <outfile> [extra flags...]
     --asset modules/module-postgres-storage/dist/migrations/scripts \
     --outfile "$out"
 }
-compile "$OUT/powersync" --trim --explain=trim > "$OUT/build.log" 2>&1 || { tail -60 "$OUT/build.log"; exit 1; }
+compile "$OUT/powersync" --trim --explain=trim --no-compile-function-source --trim-locales=en > "$OUT/build.log" 2>&1 || { tail -60 "$OUT/build.log"; exit 1; }
 sed -n 's/^.*aot: trim: //p' "$OUT/build.log" > "$OUT/trim-report.txt"
 # The same program without --trim, built only to measure what trimming saves. It is not shipped.
 compile /tmp/powersync-untrimmed > /tmp/untrimmed.log 2>&1 || { tail -60 /tmp/untrimmed.log; exit 1; }
 trimmed=$(stat -c %s "$OUT/powersync"); untrimmed=$(stat -c %s /tmp/powersync-untrimmed)
 rm -f /tmp/powersync-untrimmed /tmp/untrimmed.log
-# EXPERIMENT (branch exp/size-levers, never merged): what other size levers would save.
-{
-  for lever in "--no-compile-function-source" "--trim-locales=en" "--no-compile-function-source --trim-locales=en"; do
-    # shellcheck disable=SC2086
-    if compile /tmp/exp --trim $lever > /tmp/exp.log 2>&1; then echo "lever [$lever] binary_bytes=$(stat -c %s /tmp/exp) saved_vs_trimmed=$((trimmed - $(stat -c %s /tmp/exp)))"; else echo "lever [$lever] FAILED: $(tail -3 /tmp/exp.log | tr '\n' ' ')"; fi
-    rm -f /tmp/exp /tmp/exp.log
-  done
-  echo "ldd:"; ldd "$OUT/powersync" 2>&1 | sed 's/^/  /'
-  echo "sections:"; (command -v size >/dev/null && size -A "$OUT/powersync" | sort -k2 -n -r | head -12) || echo "  no binutils"
-  echo "embedded assets and largest strings are not listed here"
-} > "$OUT/size-levers.txt" 2>&1 || true
-cat "$OUT/size-levers.txt"
+# EXPERIMENT (branch exp/size-levers, never merged): the shipped binary is built with
+# --no-compile-function-source and --trim-locales=en, to see whether the gate still passes.
 {
   echo "bun=$(bun --revision)"
   echo "binary_bytes=$trimmed"
