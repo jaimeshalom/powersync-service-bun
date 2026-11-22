@@ -123,7 +123,13 @@ jobs:
           done
           { echo "#### TLS to Postgres"; sed 's/^/- /' "$PSBUN_WORK/tls.txt" 2>/dev/null; } >> "$GITHUB_STEP_SUMMARY"
           { echo "#### Trim"; sed 's/^/- /' "$PSBUN_WORK/trim.txt" 2>/dev/null; } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$rc" != 0 ]; then tail -n 40 "$PSBUN_WORK"/*/run-*.log; tail -n 30 "$PSBUN_WORK"/*/results/*/*.out; fi
+          if [ "$rc" != 0 ]; then
+            tail -n 40 "$PSBUN_WORK"/*/run-*.log; tail -n 30 "$PSBUN_WORK"/*/results/*/*.out
+            # The service's own words for every scenario with a failed step.
+            grep -lE '(\.exit|liveness_ok)=[1-9]' "$PSBUN_WORK"/*/results/*/summary.txt | while read -r s; do
+              tail -n 25 "$(dirname "$s")"/*.log
+            done
+          fi
           exit "$rc"
 
       - name: Publish

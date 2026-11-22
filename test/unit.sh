@@ -13,7 +13,7 @@ eq "a tag holds no character Docker refuses" "" "$(scripts/image-tag.sh 1.29.1 '
 echo "trim-check.sh"
 report() { printf '%s\n' "$@" > "$tmp/report.txt"; scripts/trim-check.sh "$tmp/report.txt" 2>&1 | tail -1; }
 tmp=$(mktemp -d); fails=0
-eq "a trimmed build passes and prints its figures" "trimmed: 22 feature(s) removed, 246 kept, 12 MB saved, binary 99 MB, blocked by: dynamic-import eval" \
+eq "a trimmed build passes and prints its figures" "trimmed: 22 feature(s) removed, 246 kept, 12000 kB saved, binary 99 MB, blocked by: dynamic-import eval" \
   "$(report binary_bytes=99000000 binary_bytes_untrimmed=111000000 trim_saved_bytes=12000000 trim_removed=22 trim_kept=246 'trim_blocked_by=dynamic-import eval')"
 eq "a report with no trim figures fails" "the build report has no trim_removed: the binary was not built with --trim" "$(report binary_bytes=99000000 migrations=40)"
 eq "a build where --trim removed nothing fails" "--trim removed nothing (trim_removed=0)" "$(report binary_bytes=99 trim_saved_bytes=0 trim_removed=0 trim_kept=268)"
