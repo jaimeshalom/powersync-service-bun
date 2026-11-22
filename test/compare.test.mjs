@@ -56,6 +56,12 @@ test('results that agree pass, with a unified variant that has no sync runner', 
 red('a variant that serves different rows fails', (r) => { if (r.name === 'aot') r.check.users.user7.dataHash = 'other'; }, /aot: check\.json differs from node/);
 red('different rows after compaction fail', (r) => { if (r.name === 'jit') r.afterCompact.onDemand.dataHash = 'other'; }, /jit: after-compact\.json differs/);
 red('different rows after a restart fail', (r) => { if (r.name === 'aot') r.afterRestart.users.user1.finalRows = 53; }, /aot: after-ps-restart\.json differs/);
+red('before any restart the operation count must match too', (r) => { if (r.name === 'aot') r.afterCompact.users.user1.ops = 55; }, /aot: after-compact\.json differs/);
+test('a transaction replayed after the restarts (one more operation, the same rows) passes and is reported', () => {
+  const r = gate(ALL, (x) => { if (x.name === 'aot') { x.afterRestart.users.user1.ops = 55; x.afterRestart.users.user1.opKinds = { PUT: 55 }; } });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /aot: after-ps-restart\.json: user1 received 55 operations \(55 PUT\), node 54 operations; the rows are the same/);
+});
 red('on fresh storage the operation checksums must match too', (r) => { if (r.name === 'aot') r.check.users.user1.opsHash = 'other'; }, /aot: check\.json differs/);
 
 test('on storage another image used, only the rows are compared, not the history', () => {

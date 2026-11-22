@@ -72,6 +72,10 @@ verdict itself: a doctored result must turn the gate red.
 The seed data is deterministic (`test/fixture/schema.sql`). Operation checksums are compared
 only on untouched seed data: after a delete, two runs of the *same* image already differ in
 the checksum of the REMOVE operation, so later steps compare the rows a client ends up with.
+The number of operations is compared until the databases restart. After that it has differed
+by one between images that served the same rows (replication is at least once: what was in
+flight when a connection dropped is written again), so the report lists such a difference,
+with the operation kinds and how many are repeats, without failing on it.
 
 ## Building locally
 

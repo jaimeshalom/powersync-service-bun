@@ -4,7 +4,7 @@
 set -euo pipefail
 H=$(cd "$(dirname "$0")" && pwd); cd "$H"
 W=${PSBUN_WORK:-$H/.work}; mkdir -p "$W"
-docker compose up -d
+docker compose up -d --quiet-pull
 for _ in $(seq 1 90); do docker compose exec -T pg pg_isready -U postgres -q && break; sleep 1; done
 M=(docker compose exec -T mongo mongosh --quiet -u root -p password --authenticationDatabase admin)
 for _ in $(seq 1 90); do "${M[@]}" --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1 && break; sleep 1; done

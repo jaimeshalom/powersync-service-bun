@@ -116,9 +116,20 @@ export function checksumsValid(st) {
  *  - opsHash: every operation with its checksum, in a fixed order. Equal only on untouched
  *    seed data: storage that saw deletes or another image carries a different history, and
  *    even two runs of the same image differ in the checksum of a REMOVE.
+ *  - ops, opKinds: how many operations the client received. Equal until a database restarts
+ *    under the service; after that the count has differed by one between two images that
+ *    served the same rows (replication is at least once: what was in flight is written again).
  */
 export function summarise(st) {
   const ops = st.ops.slice().sort((a, b) => (a.bucket + a.type + a.id + a.op).localeCompare(b.bucket + b.type + b.id + b.op));
-  return { buckets: st.buckets.length, ops: st.ops.length, finalRows: st.final.length, checksumsValid: checksumsValid(st), dataHash: sha(st.final), opsHash: sha({ buckets: st.buckets, ops }) };
+  // `repeated` counts an operation equal to the one before it on the same row: the trace a replayed transaction leaves.
+  const kinds = {}; const last = new Map(); let repeated = 0;
+  for (const o of st.ops) {
+    kinds[o.op] = (kinds[o.op] ?? 0) + 1;
+    const row = `${o.bucket}/${o.type}/${o.id}`; const what = `${o.op}/${o.data}`;
+    if (last.get(row) === what) repeated += 1;
+    last.set(row, what);
+  }
+  return { buckets: st.buckets.length, ops: st.ops.length, opKinds: { ...kinds, repeated }, finalRows: st.final.length, checksumsValid: checksumsValid(st), dataHash: sha(st.final), opsHash: sha({ buckets: st.buckets, ops }) };
 }
 export const sha = (v) => crypto.createHash('sha256').update(JSON.stringify(v)).digest('hex');
