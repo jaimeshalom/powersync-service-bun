@@ -10,10 +10,15 @@
 #  - --trim: leaves out the Bun and Node.js APIs the service never calls, so the binary carries
 #    less code that could be reached. A call that does reach a removed API throws
 #    ERR_FEATURE_REMOVED; the gate fails on any (test/run-variant.sh, `removed_api_hits`).
-#    trim-report.txt lists what was removed and why each kept API is kept (--explain=trim).
+#    trim-report.txt lists what was removed and why each kept API is kept (--explain=trim);
+#  - deps-from-ts.mjs: the MongoDB driver and its bson are compiled from their TypeScript
+#    sources, which the compiler can optimise further. It says why, and when it does not apply.
+#  - patch-perf.mjs bson-latin: an edit to bson that only pays off compiled (it says why).
 set -eu
 APP=$1; OUT=$2; mkdir -p "$OUT"; cd "$APP"
 bun compile --help >/dev/null 2>&1 || { echo "this Bun has no 'bun compile'" >&2; exit 3; }
+bun "$(dirname "$0")/patch-perf.mjs" "$APP" bson-latin
+DEPS=$(bun "$(dirname "$0")/deps-from-ts.mjs" "$APP"); echo "$DEPS"
 MIG=$(ls modules/module-mongodb-storage/dist/migrations/db/migrations/*.js modules/module-postgres-storage/dist/migrations/scripts/*.js)
 compile() { # <outfile> [extra flags...]
   out=$1; shift
@@ -40,6 +45,7 @@ rm -f /tmp/powersync-untrimmed /tmp/untrimmed.log
   echo "trim_kept=$(grep -c '^kept ' "$OUT/trim-report.txt" || true)"
   echo "trim_blocked_by=$(sed -n 's/^blocked by \([a-z-]*\):.*/\1/p' "$OUT/trim-report.txt" | sort -u | tr '\n' ' ' | sed 's/ $//')"
   echo "migrations=$(echo "$MIG" | wc -w)"
+  echo "$DEPS"
   echo "warning_classes:"
   grep -oE 'TS1[0-9]{5}' "$OUT/build.log" | sort | uniq -c || true
 } | tee "$OUT/build-report.txt"

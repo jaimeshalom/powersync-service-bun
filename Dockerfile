@@ -24,6 +24,8 @@ RUN pnpm build:production \
  && pnpm install --frozen-lockfile --prod --ignore-scripts
 COPY scripts/patch-interop.sh /usr/local/bin/patch-interop.sh
 RUN patch-interop.sh /app
+COPY scripts/rewrite.mjs scripts/patch-perf.mjs scripts/patch-migration-order.mjs /opt/recipe/
+RUN node /opt/recipe/patch-migration-order.mjs /app && node /opt/recipe/patch-perf.mjs /app bson-fatal sha256
 
 # ── Bun ──────────────────────────────────────────────────────────────────────────────────
 FROM ${RUNTIME_IMAGE} AS bun
@@ -36,7 +38,7 @@ RUN curl -fsSL -o /tmp/bun.zip "${BUN_URL}" && unzip -q -j /tmp/bun.zip '*/bun' 
 FROM bun AS compile
 COPY --from=app /app /app
 WORKDIR /app
-COPY scripts/compile.sh /usr/local/bin/compile.sh
+COPY scripts/compile.sh scripts/deps-from-ts.mjs scripts/rewrite.mjs scripts/patch-perf.mjs /usr/local/bin/
 RUN compile.sh /app /out
 
 # ── shared runtime base: same user, workdir and probe directory as the upstream image ────

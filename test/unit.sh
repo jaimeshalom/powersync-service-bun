@@ -1,5 +1,6 @@
 #!/bin/bash
-# Unit tests that need no Docker: the tag naming and the gate's verdict. Run from anywhere.
+# Unit tests that need no Docker: the tag naming, the gate's verdict and the build-time patches.
+# Run from anywhere.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 fails=0
@@ -21,4 +22,6 @@ eq "a trimmed binary that is not smaller fails" "the trimmed binary is not small
 eq "…and so does a larger one" "the trimmed binary is not smaller than the untrimmed one (trim_saved_bytes=-5)" "$(report binary_bytes=99 trim_saved_bytes=-5 trim_removed=22)"
 rm -rf "$tmp"
 [ "$fails" = 0 ] || { echo "trim-check: $fails case(s) failed"; exit 1; }
-node --test test/compare.test.mjs
+# patches.test.mjs checks the patched bson against the suite's own pinned copy.
+[ -d test/node_modules ] || (cd test && npm ci --no-audit --no-fund >/dev/null)
+node --test test/compare.test.mjs test/patches.test.mjs
