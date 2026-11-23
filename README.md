@@ -47,6 +47,8 @@ Each scenario runs as the image's own user, with a config in the shape of a real
 (`test/powersync.yaml`), and its runners restart when they crash, as a pod does:
 
 - `migrate up`, `test-connection` and `compact` as one-shot commands;
+- the storage migrations must run in the order of their names, and on fresh storage the same
+  ones as the reference;
 - initial sync of five users over NDJSON, with both an Ed25519 and an RSA key from a JWKS URL;
   rows, bucket checksums and operation checksums must equal the reference byte for byte;
 - an on-demand stream with a client parameter;

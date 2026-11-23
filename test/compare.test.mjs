@@ -19,7 +19,8 @@ const check = () => ({
 const transports = () => ({ websocket: { ok: true, dataHash: 't' }, bsonHttp: { ok: true, dataHash: 't' }, websocketBadToken: 'refused' });
 const summary = (mode) => {
   const s = { image: 'img', storage: 'mongodb', mode, image_bytes: '300000000', image_user: '901', 'cmd.migrate.exit': '0', 'api.liveness_ok': '0',
-    'api.liveness_after_s': '1.2', 'check.exit': '0', 'transports.exit': '0', stop_s: '0.3', removed_api_hits: '0' };
+    'api.liveness_after_s': '1.2', 'check.exit': '0', 'transports.exit': '0', stop_s: '0.3', removed_api_hits: '0',
+    migrations: '1684951997326-init,1749024804042-snapshot-progress,1771232439485-storage-version' };
   for (const c of mode === 'unified' ? ['api'] : ['api', 'sync']) Object.assign(s, { [`${c}.metrics_series`]: '9', [`${c}.log_json_lines`]: '50', [`${c}.log_error_lines`]: '2',
     [`${c}.exit_code`]: '0', [`${c}.restarts`]: '0', [`${c}.idle.rss_kb`]: '90000', [`${c}.final.peak_kb`]: '120000', [`${c}.final.cpu_ms`]: '400' });
   return s;
@@ -86,3 +87,13 @@ red('a WebSocket served to a bad token fails', (r) => { if (r.name === 'jit') r.
 red('an initial sync with no rows fails', (r) => { r.check.users.user50.finalRows = 0; }, /initial sync returned no rows/);
 // Equal to the reference is not enough: every variant accepting a broken config agrees and is wrong.
 red('a wrong validation verdict fails even when every variant agrees', (r) => { r.check.endpoints.validateBroken.valid = true; }, /sync-config validation gave the wrong verdict/);
+
+red('storage migrations run out of order fail', (r) => { if (r.name === 'jit') r.summary.migrations = '1749024804042-snapshot-progress,1684951997326-init,1771232439485-storage-version'; },
+  /jit: ran its storage migrations out of order: 1749024804042-snapshot-progress, 1684951997326-init/);
+red('on fresh storage a variant that runs other migrations than the reference fails', (r) => { if (r.name === 'aot') r.summary.migrations = '1684951997326-init,1771232439485-storage-version'; },
+  /aot: ran storage migrations 1684951997326-init,.*; node ran 1684951997326-init, 1749024804042-snapshot-progress/);
+red('a scenario that did not record its migrations fails', (r) => { if (r.name === 'aot-unified') delete r.summary.migrations; }, /aot-unified: the storage migrations it ran were not recorded/);
+test('on storage another image migrated, running none or only newer migrations passes', () => {
+  const r = gate(ALL, (x) => { if (x.name === 'aot-switch') x.summary.migrations = ''; if (x.name === 'node-rollback') x.summary.migrations = '1771232439485-storage-version'; });
+  assert.equal(r.status, 0, r.out);
+});
