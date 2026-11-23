@@ -50,6 +50,8 @@ for cmd in "migrate up" "test-connection"; do
   # shellcheck disable=SC2086
   docker run --rm "${COMMON[@]}" -e PS_PORT=18182 -e PS_METRICS_PORT=19566 "$IMG" $cmd > "$OUT/cmd-${cmd%% *}.log" 2>&1; say "cmd.${cmd%% *}.exit=$?"
 done
+# The storage migrations `migrate up` ran, in the order it ran them (compare.mjs checks the order).
+say "migrations=$(grep -oE 'Executing [^ "]+ \(up\)' "$OUT/cmd-migrate.log" | awk '{print $2}' | paste -sd, -)"
 
 t0=$(date +%s.%N)
 if [ "$MODE" = unified ]; then run api 18180 19564 -d "$IMG" start -r unified >/dev/null

@@ -17,6 +17,8 @@ const stable = (c, withHistory, withOps) => {
   const sync = (s) => s && { buckets: s.buckets, finalRows: s.finalRows, dataHash: s.dataHash, ...(withOps ? { ops: s.ops } : {}), ...(withHistory ? { opsHash: s.opsHash } : {}) };
   return c && { users: Object.fromEntries(Object.entries(c.users).map(([k, v]) => [k, sync(v)])), onDemand: sync(c.onDemand), auth: c.auth, endpoints: c.endpoints, live: c.live?.ok };
 };
+const migrations = (s) => (s.migrations ?? '').split(',').filter(Boolean);
+const byTimestamp = (a, b) => Number(a.split('-')[0]) - Number(b.split('-')[0]) || (a < b ? -1 : a > b ? 1 : 0);
 const kinds = (s) => `${s.ops} operations${s.opKinds ? ` (${Object.entries(s.opKinds).sort().map(([k, v]) => `${v} ${k}`).join(', ')})` : ''}`;
 const failures = []; const notes = []; const rows = [];
 const all = [ref, ...variants]; const S = Object.fromEntries(all.map((n) => [n, summary(n)]));
@@ -33,9 +35,19 @@ for (const n of all) {
   }
   if (s.removed_api_hits !== '0') fail(`reached an API that --trim removed (${s.removed_api_hits ?? 'not counted'} log line(s) with ERR_FEATURE_REMOVED)`);
   if (s.image_user !== '901') fail(`image runs as user '${s.image_user}', not 901 like the upstream image`);
+  // Storage migrations must run in the order of the timestamps that start their names, as they
+  // do under Node: a later one can depend on an earlier one (scripts/patch-migration-order.mjs).
+  const fresh = !/-(switch|rollback|upgrade)$/.test(n);
+  if (s.migrations === undefined) fail('the storage migrations it ran were not recorded');
+  else {
+    const ran = migrations(s); const ordered = [...ran].sort(byTimestamp);
+    if (ran.join() !== ordered.join()) fail(`ran its storage migrations out of order: ${ran.join(', ')}`);
+    // On fresh storage every image runs the same migrations as the reference.
+    else if (fresh && ran.join() !== migrations(S[ref]).join()) fail(`ran storage migrations ${ran.join(', ') || 'none'}; ${ref} ran ${migrations(S[ref]).join(', ') || 'none'}`);
+  }
   for (const f of ['check.json', 'after-compact.json', 'after-ps-restart.json']) {
     // A variant started on storage another image already used carries that image's history.
-    const fresh = !/-(switch|rollback|upgrade)$/.test(n); const c = json(n, f);
+    const c = json(n, f);
     if (!c) { fail(`${f} missing`); continue; }
     // after-ps-restart.json follows the database restarts; from there the operation count is history too.
     const args = [fresh && f === 'check.json', fresh && f !== 'after-ps-restart.json']; const r = json(ref, f);

@@ -22,7 +22,7 @@ Both are drop-in replacements for `journeyapps/powersync-service`: the same comm
 
 - A tag is immutable: it is never rebuilt or deleted.
 - `<recipe>` is `RECIPE_REVISION`. Raise it in the same change that alters what goes into the
-  image (`Dockerfile`, `scripts/compile.sh`, `scripts/patch-interop.sh`).
+  image (`Dockerfile` or any script it copies in).
 - A canary Bun keeps its commit in the tag (`bun1.4.6-canary.1-feccae1b6`), because two
   canaries share a version number.
 - `channels/latest.json` names the newest build that passed the gate, with its digests.
@@ -47,6 +47,8 @@ Each scenario runs as the image's own user, with a config in the shape of a real
 (`test/powersync.yaml`), and its runners restart when they crash, as a pod does:
 
 - `migrate up`, `test-connection` and `compact` as one-shot commands;
+- the storage migrations must run in the order of their names, and on fresh storage the same
+  ones as the reference;
 - initial sync of five users over NDJSON, with both an Ed25519 and an RSA key from a JWKS URL;
   rows, bucket checksums and operation checksums must equal the reference byte for byte;
 - an on-demand stream with a client parameter;
@@ -131,6 +133,29 @@ cannot be undone.
   reads differently from Node; without the one-line change PowerSync stops at start under
   Bun. The script explains the mechanism. `test/interop-still-needed.sh` shows when a new
   Bun or a new version of the package makes it unnecessary.
+- **`scripts/patch-migration-order.mjs`.** PowerSync runs its storage migrations in the
+  order `fs.readdir` lists them. Node's `readdir` sorts; Bun's does not, and before this
+  patch the JIT image ran them out of order on both storages and worked by luck. The patch
+  sorts the list, so every runtime runs the order upstream tests with. The gate records the
+  migrations each scenario ran and fails on any out of order.
+- **`scripts/patch-perf.mjs`.** Three edits that keep every result the same and remove work
+  the compiler cannot make cheap: bson's decoding of short strings (`bson-latin`), bson's
+  scan of every decoded string for U+FFFD (`bson-fatal`), and the checksum of each operation
+  (`sha256`). The script says what each one changes, and `test/patches.test.mjs` proves the
+  patched code returns what the stock code returns. Measured on PowerSync 1.29.1 with 100
+  clients on MongoDB storage, the three take 22 % off the AOT API runner's CPU and about 4 %
+  off replication. Both images get `bson-fatal` and `sha256`; only the AOT binary gets
+  `bson-latin` (the compile stage applies it), because under a JIT it was mixed or slower.
+- **`scripts/deps-from-ts.mjs`.** The AOT build compiles the MongoDB driver and its bson from
+  the TypeScript sources they ship rather than their published JavaScript; the types let the
+  compiler prove more object shapes. On top of the patches it takes another 8 % off the API
+  runner's CPU and 4–7 % off replication, with the same memory. It applies only to the
+  versions in its verified list and otherwise keeps the published JavaScript;
+  `deps_from_ts` in the build report says which happened. To add a version, check how the
+  package publishes its build (the script says what) and run the gate.
+- **Code patches fail loudly.** Every patch script names the exact upstream code it edits
+  (`scripts/rewrite.mjs`): code of another shape stops the build instead of being skipped,
+  so a new PowerSync or dependency version gets a reviewed patch or none.
 - **`scripts/compile.sh`.** The compiler cannot see files that are read from disk or
   imported dynamically at run time; the script lists them and says why each one is there.
   Its report of compiler warning classes is kept in the image at
